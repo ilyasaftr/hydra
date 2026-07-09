@@ -1,20 +1,36 @@
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /go/src/github.com/ory/hydra
+
+RUN apk add --no-cache build-base
+
+COPY oryx/go.mod oryx/go.mod
+COPY oryx/go.sum oryx/go.sum
+
+RUN mkdir -p ./internal/httpclient
+
+COPY go.mod go.sum ./
+COPY internal/httpclient/go.* ./internal/httpclient/
+
+RUN go mod download
+
+COPY . .
+RUN go build -ldflags="-extldflags=-static" -o /usr/bin/hydra
+
+#########################
+
 FROM alpine:3.21
 
-RUN <<HEREDOC
-    apk add --no-cache --upgrade ca-certificates
-
-    # Add a user/group for nonroot with a stable UID + GID. Values are from nonroot from distroless
-    # for interoperability with other containers.
-    addgroup --system --gid 65532 nonroot
-    adduser --system --uid 65532 \
+RUN apk add --no-cache --upgrade ca-certificates tzdata \
+    && addgroup --system --gid 65532 nonroot \
+    && adduser --system --uid 65532 \
       --gecos "nonroot User" \
       --home /home/nonroot \
       --ingroup nonroot \
       --shell /sbin/nologin \
       nonroot
-HEREDOC
 
-COPY hydra /usr/bin/hydra
+COPY --from=builder /usr/bin/hydra /usr/bin/hydra
 
 USER nonroot
 

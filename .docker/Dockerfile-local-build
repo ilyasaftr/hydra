@@ -15,7 +15,10 @@ COPY internal/httpclient/go.* ./internal/httpclient/
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o /usr/bin/hydra
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=0
+RUN GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -extldflags=-static" -o /usr/bin/hydra
 
 #########################
 

@@ -15,7 +15,6 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/urfave/negroni"
 	"go.uber.org/automaxprocs/maxprocs"
@@ -94,6 +93,7 @@ type RegistrySQL struct {
 	fositeFactories             []fositex.Factory
 	migrator                    *sql.MigrationManager
 	dbOptsModifier              []func(details *pop.ConnectionDetails)
+	httpClientOpts              []httpx.ResilientOptions
 
 	keyManager     jwk.Manager
 	consentManager consent.Manager
@@ -337,7 +337,7 @@ func (m *RegistrySQL) RegisterPublicRoutes(ctx context.Context, public *httprout
 func (m *RegistrySQL) RegisterAdminRoutes(admin *httprouterx.RouterAdmin) {
 	m.HealthHandler().SetHealthRoutes(admin, true)
 	m.HealthHandler().SetVersionRoutes(admin)
-	admin.GET(prometheusx.MetricsPrometheusPath, promhttp.Handler().ServeHTTP)
+	admin.GET(prometheusx.MetricsPrometheusPath, prometheusx.Handler().ServeHTTP)
 
 	consent.NewHandler(m).SetRoutes(admin)
 	jwk.NewHandler(m).SetAdminRoutes(admin)
@@ -463,19 +463,22 @@ func (m *RegistrySQL) CookieStore(ctx context.Context) (sessions.Store, error) {
 }
 
 func (m *RegistrySQL) HTTPClient(_ context.Context, opts ...httpx.ResilientOptions) *retryablehttp.Client {
-	opts = append(opts,
+	clientOpts := []httpx.ResilientOptions{
 		httpx.ResilientClientWithLogger(m.Logger()),
 		httpx.ResilientClientWithMaxRetry(2),
-		httpx.ResilientClientWithConnectionTimeout(30*time.Second))
+		httpx.ResilientClientWithConnectionTimeout(30 * time.Second),
+	}
 
+	clientOpts = append(clientOpts, m.httpClientOpts...)
+	clientOpts = append(clientOpts, opts...)
 	if m.Config().ClientHTTPNoPrivateIPRanges() {
-		opts = append(
-			opts,
+		clientOpts = append(
+			clientOpts,
 			httpx.ResilientClientDisallowInternalIPs(),
 			httpx.ResilientClientAllowInternalIPRequestsTo(m.Config().ClientHTTPPrivateIPExceptionURLs()...),
 		)
 	}
-	return httpx.NewResilientClient(opts...)
+	return httpx.NewResilientClient(clientOpts...)
 }
 
 func (m *RegistrySQL) OAuth2Provider() fosite.OAuth2Provider {
